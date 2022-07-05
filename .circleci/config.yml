@@ -1,12 +1,12 @@
 version: 2.1
 
 orbs:
-  heroku: circleci/heroku@1.2.6  heroku: circleci/heroku@1.0.1
+  heroku: circleci/heroku@1.2.6 
 
 workflows:
     example-workflow:
       jobs:
         - heroku/deploy-via-git:
-            api-key: '9dc39a9e-5ada-4131-9ea2-6909435578e8' 
+            api-key: HEROKU_API_KEY
             app-name: tetsunosuke-menta-test 
             branch: main 
