@@ -1,36 +1,90 @@
 version: 2.1
-
 orbs:
-  heroku: circleci/heroku@0.0.10 # Heroku orbを起動する
+  ruby-orbs: sue445/ruby-orbs@1.6.0
+  heroku: circleci/heroku@1.0.1
 
 workflows:
-  heroku_deploy:
+  build_test_and_deploy:
     jobs:
       - build
-      - heroku/deploy-via-git: # 事前に設定されたジョブ deploy-via-git を使う
+      - rubocop:
+          requires: 
+            - build
+      - rspec:
           requires:
             - build
+            - rubocop
+      - deploy_prd:
+          requires:
+            - build
+            - rspec
           filters:
             branches:
-              only: sequential-branch-filter
+              only:
+                - main
+
+executors:
+  default:
+    working_directory: ~/repo
+    docker:
+      - image: ruby:2.5.0-stretch
+        environment:
+          BUNDLE_PATH: vendor/bundle
+          RAILS_ENV: test
+
 jobs:
   build:
-    docker:
-      - image: cimg/ruby:2.4-node
-        auth:
-          username: mydockerhub-user
-          password: $DOCKERHUB_PASSWORD  # コンテキスト/プロジェクト UI 環境変数の参照
-      - image: cimg/postgres:9.6
-        auth:
-          username: mydockerhub-user
-          password: $DOCKERHUB_PASSWORD  # コンテキスト/プロジェクト UI 環境変数の参照
-    working_directory: ~/circleci-demo-workflows
+    executor: default
     steps:
       - checkout
-      # インストールの依存関係をバンドル
-      - run: bundle install --path vendor/bundle
-      # データベースの設定
-      - run: bundle exec rake db:create db:schema:load
+      - bundle-install
+  rubocop:
+    executor: default
+    steps:
+      - preparate
       - run:
-          name: Run tests
-          command: rake
+          name: Rubocop
+          command: bundle exec rubocop
+  rspec:
+    executor: default
+    steps:
+      - preparate
+      - run: bundle exec rails db:create
+      - run: bundle exec rails db:schema:load
+      - run:
+          name: Rspec
+          command: bundle exec rspec
+  deploy_prd:
+    executor: heroku/default
+    parameters:
+      app-name: 
+        default: $HEROKU_APP_NAME_PRD
+        type: string
+      post-deploy:
+        default:
+          - run:
+              command: heroku run rails db:migrate --app $HEROKU_APP_NAME_PRD
+        type: steps
+    steps:
+      - checkout
+      - heroku/install
+      - heroku/deploy-via-git:
+          app-name: << parameters.app-name >>
+      - steps: << parameters.post-deploy >>
+
+commands:
+  bundle-install:
+    steps:
+      - ruby-orbs/bundle-install:
+          bundle_clean: true
+          bundle_extra_args: ''
+          bundle_gemfile: Gemfile
+          bundle_jobs: 4
+          bundle_path: vendor/bundle
+          bundle_retry: 3
+          cache_key_prefix: v1-bundle-dependencies
+          restore_bundled_with: true
+  preparate:
+    steps:
+      - checkout
+      - bundle-install
